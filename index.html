@@ -13,73 +13,20 @@
   h1{margin:4px 0 12px;font-size:20px}
   pre,code{white-space:pre-wrap;word-break:break-all;font-size:13px}
   pre{color:var(--mute);margin:0}
-  .c{display:grid;gap:14px}
-  pre{overflow-wrap:anywhere;word-break:normal}
-  .r{display:flex;gap:8px;flex-wrap:wrap}
-  .r input{flex:1 1 14em;min-width:0}
-  input,button{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-  input{min-width:0}
-  button{background:var(--fg);color:var(--card);border-color:var(--fg);cursor:pointer}
-  button.q{background:var(--bg);color:var(--fg);border-color:var(--line)}
-  button:disabled{opacity:.5;cursor:default}
-  label{display:block}
-  label .s{display:block;margin-bottom:6px}
-  a{color:inherit}
-  .d{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--mute);vertical-align:1px;margin-right:6px}
-  .on .d{background:#2e9e5b}
-  .off .d{background:#c8472f}
-  .hide{display:none}
-  hr{border:0;border-top:1px solid var(--line);margin:0}
 </style>
 </head>
 <body>
 
-<div class="c" id="boot">
-  <div><span class="s" id="bs"><span class="d"></span>Starting</span></div>
-  <h1 id="bh">Starting the proxy</h1>
-  <pre id="bp">Installing the service worker for this page.</pre>
-</div>
-
-<div class="c hide" id="home">
-  <div><span class="s" id="st"><span class="d"></span>Checking</span></div>
-  <h1>Peekaboom</h1>
-  <pre id="msg">Installing the service worker.</pre>
-
-  <form class="r" id="go">
-    <input id="url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="example.com" aria-label="Address">
-    <button type="submit">Open</button>
-  </form>
-
-  <hr>
-
-  <label>
-    <span class="s">Embed a site</span>
-    <pre id="eg"></pre>
-  </label>
-
-  <label>
-    <span class="s">Use from index.html</span>
-    <pre id="pin"></pre>
-  </label>
-
-  <form id="cfg">
-    <label>
-      <span class="s">Wisp relay</span>
-      <span class="r">
-        <input id="wisp" type="text" autocapitalize="off" spellcheck="false" placeholder="wss://anura.pro/" aria-label="Wisp relay">
-        <button type="submit" class="q">Save</button>
-      </span>
-    </label>
-  </form>
-
-  <hr>
-  <pre id="dep"></pre>
+<div class="c">
+  <div class="s" id="s">Peekaboom</div>
+  <h1 id="h">Embed a site</h1>
+  <pre id="p"></pre>
 </div>
 
 <script>
 (function () {
+  // The relay is fixed here, as it is in proxy.js.
   var WISP = 'wss://anura.pro/';
-  var KEY = '__px_wisp';
   var BKEY = '__px_base';
   var sw = navigator.serviceWorker;
   var q = function (id) { return document.getElementById(id); };
@@ -98,13 +45,18 @@
   })();
   var SWPATH = BASE + 'sw.js';
   var PREFIX = BASE + '__px/';
-  var HERE = location.origin + BASE;
   var home = location.pathname === BASE
     || /^(?:index|200|404)\.html$/.test(location.pathname.slice(BASE.length));
 
-  var saved = null;
-  try { saved = localStorage.getItem(KEY); } catch (e) {}
   if (home) { try { localStorage.setItem(BKEY, BASE); } catch (e) {} }
+
+  // The page only ever changes to say why it is not working, which is the one
+  // thing a static build can fail at that the server version could not.
+  function fail(title, detail) {
+    q('s').textContent = 'Error';
+    q('h').textContent = title;
+    q('p').textContent = String(detail);
+  }
 
   // Wait for a registration to have an active worker controlling this page.
   function active(reg) {
@@ -152,6 +104,8 @@
     try { return new URL(s).href; } catch (e) { return null; }
   }
 
+  q('p').textContent = '<iframe src="' + location.origin + PREFIX + 'https://example.com/"></iframe>';
+
   // ------------------------------------------------ not the home page
   // The host serves this same file for unknown paths, so a proxied URL lands
   // here whenever no worker is controlling the page yet: install one, then
@@ -160,64 +114,22 @@
     arm().then(function () {
       location.reload();
     }, function (err) {
-      q('bs').className = 's off';
-      q('bs').innerHTML = '<span class="d"></span>Error';
-      q('bh').textContent = 'Could not start the proxy';
-      q('bp').textContent = String(err && err.message || err) + '\n' + location.href;
+      fail('Could not start the proxy', (err && err.message || err) + '\n' + location.href);
     });
     return;
   }
 
-  q('boot').className = 'c hide';
-  q('home').className = 'c';
-  q('eg').textContent = '<iframe src="' + location.origin + PREFIX + 'https://example.com/"></iframe>';
-  q('pin').textContent = 'PROXY_ORIGIN = ' + HERE.replace(/\/$/, '');
-  q('dep').textContent = BASE === '/'
-    ? 'Deployed at the root: index.html and sw.js side by side. Add 404.html (a\ncopy of index.html) to embed this proxy from another origin.'
-    : 'Deployed under ' + BASE + ': index.html and sw.js side by side. Add 404.html\n(a copy of index.html) to embed this proxy from another origin.';
-  q('wisp').value = saved || WISP;
-
-  var state = function (cls, label, text) {
-    q('st').className = 's ' + cls;
-    q('st').innerHTML = '<span class="d"></span>' + label;
-    q('msg').textContent = text;
-  };
-
-  var url = new URL(location.href);
-  var pending = target(url.searchParams.get('url'));
+  var pending = target(new URL(location.href).searchParams.get('url'));
 
   arm().then(function () {
-    return ask({ __px: 'config', wisp: saved || WISP });
+    return ask({ __px: 'config', wisp: WISP });
   }).then(function (reply) {
     if (pending) { location.replace(location.origin + PREFIX + pending); return; }
     if (reply && !reply.ok) {
-      state('off', 'Transport failed', 'The worker is running but could not load libcurl.js.');
-      return;
+      fail('Could not start the proxy', 'The worker is running but could not load libcurl.js.');
     }
-    var relay = (reply && reply.wisp) || saved || WISP;
-    state('on', 'Ready', 'Proxying through ' + relay + '\nEvery path under ' + BASE + ' is served by the worker.');
   }, function (err) {
-    state('off', 'Not running', String(err && err.message || err));
-  });
-
-  q('go').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var t = target(q('url').value);
-    if (!t) { state('off', 'Invalid URL', 'Enter a public http or https address.'); return; }
-    location.href = location.origin + PREFIX + t;
-  });
-
-  q('cfg').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var v = q('wisp').value.trim() || WISP;
-    try { localStorage.setItem(KEY, v); } catch (err) {}
-    saved = v;
-    if (!sw || !sw.controller) { state('off', 'Not running', 'Install the worker first.'); return; }
-    state('', 'Saving', 'Switching to ' + v);
-    ask({ __px: 'config', wisp: v }).then(function (reply) {
-      if (reply && !reply.ok) { state('off', 'Transport failed', 'Could not load libcurl.js.'); return; }
-      state('on', 'Ready', 'Proxying through ' + ((reply && reply.wisp) || v));
-    });
+    fail('Could not start the proxy', err && err.message || err);
   });
 })();
 </script>
