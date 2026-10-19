@@ -3,4 +3,4 @@ Extremely compatible proxy that serves any public website so it can be embedded 
 
 uses wss://anura.pro/
 
-# Link: 
+# Link: https://ltorl.github.io/peekaboom-proxy/
