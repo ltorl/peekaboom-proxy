@@ -2883,6 +2883,24 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+// A relay is any ws: or wss: URL; anything else is ignored.
+function wispUrl(raw) {
+  try {
+    const u = new URL(String(raw || '').trim());
+    return /^wss?:$/.test(u.protocol) ? u.href : null;
+  } catch (err) { return null; }
+}
+
+async function setWisp(raw) {
+  const wisp = wispUrl(raw);
+  if (!wisp || wisp === stateData.wisp) return;
+  stateData.wisp = wisp;
+  await saveState();
+  // The relay is chosen when the transport starts, so start over.
+  curlReady = null;
+  session = null;
+}
+
 self.addEventListener('message', (event) => {
   const msg = event.data;
   if (!msg || typeof msg !== 'object') return;
@@ -2901,13 +2919,7 @@ self.addEventListener('message', (event) => {
     } else if (msg.__px === 'ws-open' && event.ports && event.ports[0]) {
       await openSocket(event, msg, event.ports[0]);
     } else if (msg.__px === 'config') {
-      if (msg.wisp && msg.wisp !== stateData.wisp) {
-        stateData.wisp = msg.wisp;
-        await saveState();
-        // The relay is chosen when the transport starts, so start over.
-        curlReady = null;
-        session = null;
-      }
+      await setWisp(msg.wisp);
       if (source) source.postMessage({ __px: 'config', wisp: stateData.wisp, ok: !bootError });
     } else if (msg.__px === 'reset') {
       stateData.jar = {};
@@ -2927,8 +2939,18 @@ self.addEventListener('fetch', (event) => {
     if (HOME_PATH.test(url.pathname)) {
       if (url.pathname !== BASE || !url.searchParams.has('url')) return;
       const target = normalizeInput(url.searchParams.get('url'));
+      const wisp = url.searchParams.get('wisp');
+      if (wisp !== null && !wispUrl(wisp)) {
+        event.respondWith(errorPage(400, 'Invalid Wisp relay', 'Pass a ws:// or wss:// URL.'));
+        return;
+      }
       event.respondWith(target
-        ? Response.redirect(ME + PREFIX + target.href, 302)
+        ? (async () => {
+          // ?wisp= picks the relay before the site is fetched through it.
+          await state();
+          await setWisp(wisp || CONFIG.wisp);
+          return Response.redirect(ME + PREFIX + target.href, 302);
+        })()
         : errorPage(400, 'Invalid URL', 'Pass a public http(s) URL.'));
       return;
     }

@@ -25,7 +25,7 @@
 
 <script>
 (function () {
-  // The relay is fixed here, as it is in proxy.js.
+  // The default relay, as in proxy.js. ?wisp=wss://host/path/ picks another.
   var WISP = 'wss://anura.pro/';
   var BKEY = '__px_base';
   var sw = navigator.serviceWorker;
@@ -104,6 +104,13 @@
     try { return new URL(s).href; } catch (e) { return null; }
   }
 
+  function relay(raw) {
+    try {
+      var u = new URL(String(raw || '').trim());
+      return /^wss?:$/.test(u.protocol) ? u.href : null;
+    } catch (e) { return null; }
+  }
+
   q('p').textContent = '<iframe src="' + location.origin + PREFIX + 'https://example.com/"></iframe>';
 
   // ------------------------------------------------ not the home page
@@ -119,10 +126,16 @@
     return;
   }
 
-  var pending = target(new URL(location.href).searchParams.get('url'));
+  var params = new URL(location.href).searchParams;
+  var pending = target(params.get('url'));
+  var wisp = params.has('wisp') ? relay(params.get('wisp')) : WISP;
+  if (!wisp) {
+    fail('Invalid Wisp relay', 'Pass a ws:// or wss:// URL.\n' + params.get('wisp'));
+    return;
+  }
 
   arm().then(function () {
-    return ask({ __px: 'config', wisp: WISP });
+    return ask({ __px: 'config', wisp: wisp });
   }).then(function (reply) {
     if (pending) { location.replace(location.origin + PREFIX + pending); return; }
     if (reply && !reply.ok) {
