@@ -2937,20 +2937,12 @@ self.addEventListener('fetch', (event) => {
     // The worker's own script, and the pages the static host serves.
     if (url.pathname === SW_PATH) return;
     if (HOME_PATH.test(url.pathname)) {
-      if (url.pathname !== BASE || !url.searchParams.has('url')) return;
+      // ?wisp= is left to the page: a relay on this machine needs Chrome's
+      // local network permission, and only a page can ask for it.
+      if (url.pathname !== BASE || !url.searchParams.has('url') || url.searchParams.has('wisp')) return;
       const target = normalizeInput(url.searchParams.get('url'));
-      const wisp = url.searchParams.get('wisp');
-      if (wisp !== null && !wispUrl(wisp)) {
-        event.respondWith(errorPage(400, 'Invalid Wisp relay', 'Pass a ws:// or wss:// URL.'));
-        return;
-      }
       event.respondWith(target
-        ? (async () => {
-          // ?wisp= picks the relay before the site is fetched through it.
-          await state();
-          await setWisp(wisp || CONFIG.wisp);
-          return Response.redirect(ME + PREFIX + target.href, 302);
-        })()
+        ? Response.redirect(ME + PREFIX + target.href, 302)
         : errorPage(400, 'Invalid URL', 'Pass a public http(s) URL.'));
       return;
     }
@@ -2967,6 +2959,15 @@ async function route(event, request, url) {
     if (url.origin === ME && url.pathname.startsWith(PREFIX)) {
       const raw = url.pathname.slice(PREFIX.length).replace(/^([a-z]+):\/(?!\/)/i, '$1://') + url.search + url.hash;
       try { target = new URL(raw); } catch (err) { return errorPage(400, 'Invalid URL', raw); }
+      // A page opened as <prefix><url>?wisp=ws(s)://... picks the relay too.
+      // The parameter is the proxy's, not the site's, so it is taken off and
+      // handed to the home page, which sets the relay and comes back.
+      const wisp = request.mode === 'navigate' && wispUrl(target.searchParams.get('wisp'));
+      if (wisp) {
+        target.searchParams.delete('wisp');
+        return Response.redirect(ME + BASE + '?wisp=' + encodeURIComponent(wisp)
+          + '&url=' + encodeURIComponent(target.href), 302);
+      }
     } else if (url.origin === ME) {
       const origin = await siteOf(event, request);
       if (!origin) return usagePage(url);

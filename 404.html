@@ -83,7 +83,7 @@
     });
   }
 
-  function ask(msg) {
+  function ask(reg, msg) {
     return new Promise(function (done) {
       var t = setTimeout(function () { done(null); }, 8000);
       var on = function (e) {
@@ -93,7 +93,9 @@
         done(e.data);
       };
       sw.addEventListener('message', on);
-      try { sw.controller.postMessage(msg); } catch (e) { clearTimeout(t); done(null); }
+      // On a first visit the worker is active before it has claimed this
+      // page, so there may be no controller to post to yet.
+      try { (sw.controller || reg.active).postMessage(msg); } catch (e) { clearTimeout(t); done(null); }
     });
   }
 
@@ -109,6 +111,26 @@
       var u = new URL(String(raw || '').trim());
       return /^wss?:$/.test(u.protocol) ? u.href : null;
     } catch (e) { return null; }
+  }
+
+  // Chrome only lets a public site reach this machine or the local network
+  // with permission, which a worker inherits but cannot ask for. Opening the
+  // relay from the page shows the prompt, and fails if it is turned down.
+  function local(u) {
+    var h = new URL(u).hostname.replace(/^\[|\]$/g, '');
+    return h === 'localhost' || /\.(?:localhost|local)$/.test(h)
+      || /^(?:127|10)\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)
+      || /^172\.(?:1[6-9]|2\d|3[01])\./.test(h)
+      || (h.indexOf(':') >= 0 && (h === '::1' || /^f[cd]|^fe80:/i.test(h)));
+  }
+
+  function reach(u) {
+    return new Promise(function (done) {
+      var ws;
+      try { ws = new WebSocket(u); } catch (e) { return done(false); }
+      ws.onopen = function () { ws.close(); done(true); };
+      ws.onerror = function () { done(false); };
+    });
   }
 
   q('p').textContent = '<iframe src="' + location.origin + PREFIX + 'https://example.com/"></iframe>';
@@ -134,8 +156,17 @@
     return;
   }
 
-  arm().then(function () {
-    return ask({ __px: 'config', wisp: wisp });
+  arm().then(function (reg) {
+    if (!local(wisp)) return reg;
+    return reach(wisp).then(function (ok) {
+      if (ok) return reg;
+      throw new Error('Could not connect to the Wisp relay at ' + wisp + '\n\n'
+        + 'Check that it is running, and that this site may reach it (site settings: '
+        + '"Apps on device" / "Local network"). In an iframe, the embedding page has to '
+        + 'pass that on: <iframe allow="loopback-network; local-network; local-network-access">');
+    });
+  }).then(function (reg) {
+    return ask(reg, { __px: 'config', wisp: wisp });
   }).then(function (reply) {
     if (pending) { location.replace(location.origin + PREFIX + pending); return; }
     if (reply && !reply.ok) {
